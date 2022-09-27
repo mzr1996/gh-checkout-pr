@@ -1,0 +1,61 @@
+#!/usr/bin/python3
+import argparse
+import sys
+import json
+import subprocess
+
+prog_description = """\
+Checkout to the selected PR
+
+# To checkout to the PR with specified number.
+gh checkout-pr --number \$number
+
+# To checkout to the PR by searching name.
+gh checkout-pr --search \$title
+"""
+
+SEARCH_COMMAND = 'gh pr list --search "in:title {search}" --json number,title --state all'
+RESET, RED, GREEN, MAGENTA = '\x1b[0m', '\x1b[31m', '\x1b[32m', '\x1b[35m'
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description=prog_description)
+    parser.add_argument('--number', '-n', type=int, help='')
+    parser.add_argument('--search', '-s', type=str, nargs='+', help='')
+    args = parser.parse_args()
+    return args
+
+
+def main():
+    args = parse_args()
+    if args.number is not None:
+        pr_number = int(args.number)
+    elif args.search is not None:
+        p = subprocess.Popen(
+            [
+                'gh', 'pr', 'list', '--search', 'in:title {}'.format(' '.join(args.search)),
+                '--json', 'number,title,state', '--state', 'all'
+            ],
+            stdout=subprocess.PIPE,
+        )
+        pr_list = json.loads(p.stdout.read())
+        if len(pr_list) == 0:
+            print('Not found available PR.')
+            sys.exit(1)
+        for i, pr in enumerate(reversed(pr_list)):
+            idx = len(pr_list) - i
+            color = MAGENTA if pr['state'] == 'MERGED' else GREEN
+            print(f'{RED}({idx}) {color}{pr["title"]} {RESET}(#{pr["number"]})')
+        try:
+            index = int(input("Please select the PR to checkout: ")) - 1
+        except:
+            sys.exit(1)
+        pr_number = int(pr_list[index]['number'])
+    subprocess.Popen(['gh', 'pr', 'view', str(pr_number)]).communicate()
+    confirm = str(input('\nCheckout to the branch? (Y / n)'))
+    if confirm.lower() in ['y', '']:
+        subprocess.Popen(['gh', 'pr', 'checkout', str(pr_number)]).communicate()
+
+
+if __name__ == "__main__":
+    main()
