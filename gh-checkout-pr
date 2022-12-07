@@ -63,7 +63,7 @@ def print_pr_content(title, number, state, body, updatedAt, **kwargs):
                                        timeago=timeago,
                                        body=body).split('\n')
     terminal_width = min(os.get_terminal_size().columns, 120)
-    print('┌' + '─' * (terminal_width - 3) + '┐')
+    print('╭' + '─' * (terminal_width - 3) + '╮')
     for line in lines:
         wrapped_text = textwrap.wrap(line,
                                      width=terminal_width - 3,
@@ -71,7 +71,7 @@ def print_pr_content(title, number, state, body, updatedAt, **kwargs):
         for text in wrapped_text:
             fill = terminal_width - 3 - display_len(text)
             print('│' + text + ' ' * fill + '│')
-    print('└' + '─' * (terminal_width - 3) + '┘')
+    print('╰' + '─' * (terminal_width - 3) + '╯')
 
 
 def pretty_date(time: datetime):
@@ -111,7 +111,7 @@ def main():
         pr_number = int(args.number)
         p = subprocess.Popen(
             ['gh', 'pr', 'view',
-             str(pr_number), '--json', 'title,state,body'],
+             str(pr_number), '--json', 'number,title,state,body,headRefName,updatedAt,headRepositoryOwner'],
             stdout=subprocess.PIPE,
         )
         pr_content = json.loads(p.stdout.read())
