@@ -119,7 +119,7 @@ def main():
         p = subprocess.Popen(
             [
                 'gh', 'pr', 'list', '--search', 'in:title {}'.format(' '.join(
-                    args.search)), '--json', 'number,title,state,body,headRefName,updatedAt',
+                    args.search)), '--json', 'number,title,state,body,headRefName,updatedAt,headRepositoryOwner',
                 '--state', 'all'
             ],
             stdout=subprocess.PIPE,
@@ -154,10 +154,11 @@ def main():
 
     confirm = str(input('\nCheckout to the branch? (Y / n)'))
     if confirm.lower() in ['y', '']:
-        subprocess.Popen([
-            'gh', 'pr', 'checkout', str(pr_content['number']), '-b',
-            f'pr{pr_content["number"]}/{pr_content["headRefName"]}'
-        ]).communicate()
+        if pr_content['headRepositoryOwner']['login'] == 'mzr1996':
+            branch_name = pr_content["headRefName"]
+        else:
+            branch_name = f'pr{pr_content["number"]}/{pr_content["headRefName"]}'
+        subprocess.Popen(['gh', 'pr', 'checkout', str(pr_content['number']), '-b', branch_name]).communicate()
 
 
 if __name__ == "__main__":
