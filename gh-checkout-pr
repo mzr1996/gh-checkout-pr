@@ -1,7 +1,12 @@
 #!/usr/bin/python3
+import unicodedata
 import argparse
+import textwrap
+from datetime import datetime
+import re
 import sys
 import json
+import os
 import subprocess
 
 prog_description = """\
@@ -14,8 +19,18 @@ gh checkout-pr \$number
 gh checkout-pr \$title
 """
 
-SEARCH_COMMAND = 'gh pr list --search "in:title {search}" --json number,title --state all'
-RESET, RED, GREEN, MAGENTA = '\x1b[0m', '\x1b[31m', '\x1b[32m', '\x1b[35m'
+RESET, RED, GREEN, MAGENTA = 0, 31, 32, 35
+STATE_COLOR = {
+    'MERGED': MAGENTA,
+    'CLOSED': RED,
+}
+PR_LIST_TEMPLATE = '\x1b[31m({idx}) \x1b[{color}m{title} \x1b[0m#{number} ({timeago})'
+PR_CONTENT_TEMPLATE = """
+\x1b[1;{color}m{title} \x1b[0m(#{number})
+{timeago}
+  
+{body}
+"""
 
 
 def parse_args():
@@ -31,15 +46,81 @@ def parse_args():
     return args
 
 
+def display_len(text):
+    text = re.sub(r"\x1b\[(\d*;)*(\d*)m", "", text)
+    length = len(text)
+    for char in text:
+        if unicodedata.east_asian_width(char) in ['W', 'F']:
+            length += 1
+    return length
+
+def print_pr_content(title, number, state, body, updatedAt, **kwargs):
+    color = STATE_COLOR.get(state, GREEN)
+    timeago = pretty_date(datetime.strptime(updatedAt, '%Y-%m-%dT%H:%M:%SZ'))
+    lines = PR_CONTENT_TEMPLATE.format(color=color,
+                                       number=number,
+                                       title=title,
+                                       timeago=timeago,
+                                       body=body).split('\n')
+    terminal_width = min(os.get_terminal_size().columns, 120)
+    print('┌' + '─' * (terminal_width - 3) + '┐')
+    for line in lines:
+        wrapped_text = textwrap.wrap(line,
+                                     width=terminal_width - 3,
+                                     drop_whitespace=False)
+        for text in wrapped_text:
+            fill = terminal_width - 3 - display_len(text)
+            print('│' + text + ' ' * fill + '│')
+    print('└' + '─' * (terminal_width - 3) + '┘')
+
+
+def pretty_date(time: datetime):
+    """
+    Get a datetime object or a int() Epoch timestamp and return a
+    pretty string like 'an hour ago', 'Yesterday', '3 months ago',
+    'just now', etc
+    """
+    now = datetime.utcnow()
+    diff = now - time
+    second_diff = diff.seconds
+    day_diff = diff.days
+
+    if day_diff < 0:
+        return ''
+
+    if day_diff == 0:
+        if second_diff < 10:
+            return "刚刚"
+        if second_diff < 60:
+            return str(second_diff) + " 秒前"
+        if second_diff < 3600:
+            return str(second_diff // 60) + " 分钟前"
+        if second_diff < 86400:
+            return str(second_diff // 3600) + " 小时前"
+    if day_diff < 7:
+        return str(day_diff) + " 天前"
+    if day_diff < 31:
+        return str(day_diff // 7) + " 周前"
+    if day_diff < 365:
+        return str(day_diff // 30) + " 月前"
+    return str(day_diff // 365) + " 年前"
+
 def main():
     args = parse_args()
     if args.number is not None:
         pr_number = int(args.number)
+        p = subprocess.Popen(
+            ['gh', 'pr', 'view',
+             str(pr_number), '--json', 'title,state,body'],
+            stdout=subprocess.PIPE,
+        )
+        pr_content = json.loads(p.stdout.read())
     elif args.search is not None:
         p = subprocess.Popen(
             [
-                'gh', 'pr', 'list', '--search', 'in:title {}'.format(' '.join(args.search)),
-                '--json', 'number,title,state', '--state', 'all'
+                'gh', 'pr', 'list', '--search', 'in:title {}'.format(' '.join(
+                    args.search)), '--json', 'number,title,state,body,headRefName,updatedAt',
+                '--state', 'all'
             ],
             stdout=subprocess.PIPE,
         )
@@ -49,17 +130,34 @@ def main():
             sys.exit(1)
         for i, pr in enumerate(reversed(pr_list)):
             idx = len(pr_list) - i
-            color = MAGENTA if pr['state'] == 'MERGED' else GREEN
-            print(f'{RED}({idx}) {color}{pr["title"]} {RESET}(#{pr["number"]})')
+            color = STATE_COLOR.get(pr['state'], GREEN)
+            print(
+                PR_LIST_TEMPLATE.format(
+                    idx=idx,
+                    color=color,
+                    number=pr['number'],
+                    title=pr['title'],
+                    timeago=pretty_date(
+                        datetime.strptime(pr['updatedAt'], '%Y-%m-%dT%H:%M:%SZ')),
+                ))
         try:
             index = int(input("Please select the PR to checkout: ")) - 1
-        except:
-            sys.exit(1)
-        pr_number = int(pr_list[index]['number'])
-    subprocess.Popen(['gh', 'pr', 'view', str(pr_number)]).communicate()
+        except KeyboardInterrupt:
+            return
+        except ValueError:
+            print('Invalid input.')
+            return
+
+        pr_content = pr_list[index]
+
+    print_pr_content(**pr_content)
+
     confirm = str(input('\nCheckout to the branch? (Y / n)'))
     if confirm.lower() in ['y', '']:
-        subprocess.Popen(['gh', 'pr', 'checkout', str(pr_number)]).communicate()
+        subprocess.Popen([
+            'gh', 'pr', 'checkout', str(pr_content['number']), '-b',
+            f'pr{pr_content["number"]}/{pr_content["headRefName"]}'
+        ]).communicate()
 
 
 if __name__ == "__main__":
