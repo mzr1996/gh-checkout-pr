@@ -35,13 +35,14 @@ PR_CONTENT_TEMPLATE = """
 
 def parse_args():
     parser = argparse.ArgumentParser(description=prog_description)
-    parser.add_argument('args', type=str, nargs='+', help='')
+    parser.add_argument('args', nargs='*', type=str, help='')
     parser.add_argument('--number', '-n', type=int, help='')
     parser.add_argument('--search', '-s', type=str, nargs='+', help='')
+    parser.add_argument('--base', type=str, help='')
     args = parser.parse_args()
     if len(args.args) == 1 and str(args.args[0]).isdecimal():
         args.number = args.args[0]
-    else:
+    elif len(args.args) > 0:
         args.search = args.args
     return args
 
@@ -115,15 +116,18 @@ def main():
             stdout=subprocess.PIPE,
         )
         pr_content = json.loads(p.stdout.read())
-    elif args.search is not None:
-        p = subprocess.Popen(
-            [
-                'gh', 'pr', 'list', '--search', 'in:title {}'.format(' '.join(
-                    args.search)), '--json', 'number,title,state,body,headRefName,updatedAt,headRepositoryOwner',
-                '--state', 'all'
-            ],
-            stdout=subprocess.PIPE,
-        )
+    else:
+        command = [
+            'gh', 'pr', 'list', '--json',
+            'number,title,state,body,headRefName,updatedAt,headRepositoryOwner',
+            '--state', 'all'
+        ]
+        if args.search is not None:
+            command.extend(
+                ['--search', 'in:title {}'.format(' '.join(args.search))])
+        if args.base is not None:
+            command.extend(['--base', args.base])
+        p = subprocess.Popen(command, stdout=subprocess.PIPE)
         pr_list = json.loads(p.stdout.read())
         if len(pr_list) == 0:
             print('Not found available PR.')
